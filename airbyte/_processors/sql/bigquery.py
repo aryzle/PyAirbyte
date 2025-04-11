@@ -99,7 +99,9 @@ class BigQueryTypeConverter(SQLTypeConverter):
     @classmethod
     def get_string_type(cls) -> sqlalchemy.types.TypeEngine:
         """Return the string type for BigQuery."""
-        return cast("sqlalchemy.types.TypeEngine", "String")  # BigQuery uses STRING for all strings
+        return cast(
+            "sqlalchemy.types.TypeEngine", "String"
+        )  # BigQuery uses STRING for all strings
 
     @overrides
     def to_sql_type(
@@ -117,6 +119,11 @@ class BigQueryTypeConverter(SQLTypeConverter):
             return self.get_string_type()
         if isinstance(sql_type, sqlalchemy.types.BIGINT):
             return sqlalchemy_types.Integer()  # All integers are 64-bit in BigQuery
+        # Comprehensive handling for numeric types
+        # https://github.com/airbytehq/PyAirbyte/issues/573
+        if isinstance(sql_type, (sqlalchemy.types.DECIMAL, sqlalchemy.types.NUMERIC)):
+            # Force to BigQuery's FLOAT64 to avoid precision errors
+            return "FLOAT64"
 
         return sql_type
 
@@ -165,9 +172,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         temp_table_name = self._create_table_for_loading(stream_name, batch_id)
 
         # Specify the table ID (in the format `project_id.dataset_id.table_id`)
-        table_id = (
-            f"{self.sql_config.project_name}.{self.sql_config.dataset_name}.{temp_table_name}"
-        )
+        table_id = f"{self.sql_config.project_name}.{self.sql_config.dataset_name}.{temp_table_name}"
 
         # Initialize a BigQuery client
         client = self.sql_config.get_vendor_client()
@@ -259,7 +264,11 @@ class BigQuerySqlProcessor(SqlProcessorBase):
             tables = inspector.get_table_names(schema=self.sql_config.schema_name)
             schema_prefix = f"{self.sql_config.schema_name}."
             return [
-                table.replace(schema_prefix, "", 1) if table.startswith(schema_prefix) else table
+                (
+                    table.replace(schema_prefix, "", 1)
+                    if table.startswith(schema_prefix)
+                    else table
+                )
                 for table in tables
             ]
 
@@ -279,9 +288,13 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         ALTER TABLE my_schema.my_old_table_name RENAME TO my_new_table_name;
         """
         if final_table_name is None:
-            raise exc.PyAirbyteInternalError(message="Arg 'final_table_name' cannot be None.")
+            raise exc.PyAirbyteInternalError(
+                message="Arg 'final_table_name' cannot be None."
+            )
         if temp_table_name is None:
-            raise exc.PyAirbyteInternalError(message="Arg 'temp_table_name' cannot be None.")
+            raise exc.PyAirbyteInternalError(
+                message="Arg 'temp_table_name' cannot be None."
+            )
 
         _ = stream_name
         deletion_name = f"{final_table_name}_deleteme"
